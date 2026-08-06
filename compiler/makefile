@@ -1,5 +1,6 @@
 
-TARGET=prg/hello.flug
+#TARGET=prg/hello.flug
+TARGET=../test/test_recur.flug
 
 run:
 	python3 main.py $(TARGET)
