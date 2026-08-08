@@ -190,7 +190,7 @@ class AstLeaf:
             case 'func':
                 return AstAnon.parse(stream)
 
-            case name if stream.peek() == '(':  #)
+            case name if stream.has() and stream.peek() == '(':  #)
                 return AstCall.parse(stream, name)
 
             case var:
@@ -270,6 +270,14 @@ class AstAssign:
         stream.expect('=')
         src = AstExpr.parse(stream)
         return cls(dst, src)
+
+    def declare(self, ctx):
+        self.src.declare(ctx)
+
+    def compile(self, ctx):
+        vaddr = ctx.lookup(self.dst)
+        self.src.compile(ctx)
+        ctx.emit(f"mov [vars + {vaddr}], rax")
 
 @dc
 class AstIf:
