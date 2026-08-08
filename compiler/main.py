@@ -461,9 +461,11 @@ outn_loop:
 
     cmp rax, 0
     jne outn_loop           ; check loop exit
+    inc rdi
 
-    mov rdx, 4098           ; compute length
+    mov rdx, 4096           ; compute length
     sub rdx, rdi
+    inc rdx
 
 outn_zero_inject:
     lea rsi, byte [rdi+buf] ; buf = buffer + index
