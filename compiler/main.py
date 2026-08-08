@@ -89,6 +89,7 @@ class AstCall:
             arg.declare(ctx)
 
     def compile(self, ctx):
+        ctx.save()
 
         regs = ABI[:len(self.args)]
         for arg in self.args:
@@ -102,6 +103,9 @@ class AstCall:
             ctx.emit(f"call qword [vars + {vaddr}]")
         else:
             ctx.emit(f"call {self.name}")
+
+        ctx.restore()
+
 
 ABI = ['rax', 'rsi', 'rdi', 'rdx']
 
@@ -228,9 +232,13 @@ class AstExpr:
             case '+': ctx.emit("add rax, rbx")
             case '-': ctx.emit("sub rax, rbx")
             case '*': ctx.emit("mul rbx")
-            case '==': 
+            case '==' | '<' | '>' | '!=': 
                 ctx.emit("cmp rax, rbx")
-                ctx.emit("sete cl")
+                match self.op:
+                    case '==': ctx.emit("sete cl")
+                    case '!=': ctx.emit("setne cl")
+                    case '<': ctx.emit("setb cl")
+                    case '>': ctx.emit("seta cl")
                 ctx.emit("movzx rax, cl")
             case x: print("impl", x)
 
@@ -388,6 +396,10 @@ class Ctx:
 
     env : Env = field(default_factory=lambda: Ctx.Env())
 
+    @staticmethod
+    def vaddr_to_addr(vaddr):
+        return vaddr * 8
+
     def enter(self, sub=None):
         if not sub:
             sub = self.Env(hyper=self.env)
@@ -398,6 +410,15 @@ class Ctx:
     def leave(self):
         self.env = self.env.hyper
 
+    def save(self):
+        for i in range(self.alloc):
+            vaddr = self.vaddr_to_addr(i)
+            self.emit(f"push qword [vars + {vaddr}]")
+    def restore(self):
+        for i in range(self.alloc):
+            vaddr = self.vaddr_to_addr(self.alloc - (i + 1))
+            self.emit(f"pop qword [vars + {vaddr}]")
+
     def lookup(self, name, env=None):
         if env is None: env = self.env
 
@@ -406,7 +427,7 @@ class Ctx:
                 error(f"Variable lookup for `{name}` failed.")
             return self.lookup(name, env=env.hyper)
 
-        return env.var[name].vaddr * 8
+        return self.vaddr_to_addr(env.var[name].vaddr)
 
     def declare(self, name, const):
         self.env.var[name] = self.Var(name, const, self.alloc)
