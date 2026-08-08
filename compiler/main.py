@@ -337,6 +337,35 @@ class AstIf:
 
         ctx.emit(f"{done_label}:")
 
+@dc
+class AstWhile:
+    cond : AstExpr
+    body : "AstBlock"
+
+    @classmethod
+    def parse(cls, stream):
+        stream.expect('(')
+        cond = AstExpr.parse(stream)
+        stream.expect(')')
+        body = AstBlock.parse(stream, curly=True)
+        return cls(cond, body)
+
+    def declare(self, ctx):
+        self.body.declare(ctx)
+
+    def compile(self, ctx):
+        loop_label = ctx.fresh()
+        done_label = ctx.fresh()
+
+        ctx.emit(f"{loop_label}:")
+        self.cond.compile(ctx)
+        ctx.emit("cmp rax, 0")
+        ctx.emit(f"je {done_label}")
+        self.body.compile(ctx)
+        ctx.emit(f"jmp {loop_label}")
+        ctx.emit(f"{done_label}:")
+
+
 
 @dc
 class AstStmt:
