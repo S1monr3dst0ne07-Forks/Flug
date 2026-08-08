@@ -217,17 +217,23 @@ class AstExpr:
     def declare(self, ctx): pass
 
     @classmethod
+    def parse_lower(cls, stream, level):
+        if not level:
+            return AstLeaf.parse(stream)
+
+        return cls.parse(stream, level-1)
+
+    @classmethod
     def parse(cls, stream, level=1):
-        left = AstExpr.parse(stream, level-1) if level else AstLeaf.parse(stream)
+        node = cls.parse_lower(stream, level)
 
-        if not stream.has():
-            return left
-        if stream.peek() not in PREC[level]:
-            return left
+        while stream.has() and stream.peek() in PREC[level]:
+            op = stream.pop()
+            right = cls.parse_lower(stream, level)
+            node = cls(op, node, right)
 
-        op = stream.pop()
-        right = AstExpr.parse(stream, level)
-        return cls(op, left, right)
+        return node
+
 
     def compile(self, ctx):
         self.right.compile(ctx)
