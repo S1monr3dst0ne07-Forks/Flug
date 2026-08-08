@@ -308,16 +308,20 @@ class AstIf:
 
     def compile(self, ctx):
         skip_label = ctx.fresh()
+        done_label = ctx.fresh()
 
         if self.cond:
             self.cond.compile(ctx)
             ctx.emit("cmp rax, 0")
-            ctx.emit(f"je {skip_label}")
+            ctx.emit(f"jne {skip_label}")
         self.body.compile(ctx)
+        ctx.emit(f"jmp {done_label}")
         ctx.emit(f"{skip_label}:")
 
         if self.other:
             self.other.compile(ctx)
+
+        ctx.emit(f"{done_label}:")
 
 
 @dc
@@ -419,14 +423,42 @@ def header(ctx):
     ctx.emit("format ELF64 executable")
     ctx.emit("segment readable executable")
     ctx.emit("entry _start")
+    ctx.emit("""
+outn:
+    mov rsi, 10             ; divisor = 10
+    mov rdi, 4095           ; digit index
+outn_loop:
+    xor rdx, rdx            ; clear high register
+    div rsi                 ; extract digit
+    add dl, 48              ; convert to ascii
+    mov [buf + rdi], dl     ; save digit
+    dec rdi
+
+    cmp rax, 0
+    jne outn_loop           ; check loop exit
+
+    mov rdx, 4098           ; compute length
+    sub rdx, rdi
+
+    lea rsi, byte [rdi+buf] ; buf = buffer + index
+    mov rdi, 1              ; fd = stdout
+    mov rax, 1              ; sys_write
+    syscall
+    ret""")
+
     ctx.emit("_start:")
+    ctx.emit("call main")
+    ctx.emit("call outn")
+    ctx.emit("mov rax, 60")
+    ctx.emit("mov rdi, 0")
+    ctx.emit("syscall")
+    ctx.emit("main:")
 
 def footer(ctx):
-    ctx.emit("mov rax, 60")
-    ctx.emit("mov rsi, 0")
-    ctx.emit("syscall")
+    ctx.emit("ret")
     ctx.emit("segment readable writable")
     ctx.emit("vars: rq 100")
+    ctx.emit("buf : rb 4096 \n db 10")
 
 def main():
     stream = tokenize(sys.argv[1])
