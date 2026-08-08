@@ -1,8 +1,8 @@
 
-TARGET=prg/fib.flug
+TESTS=../test
 
-run:
-	python3 main.py $(TARGET)
+test_%:
+	python3 main.py "$(TESTS)/$@.flug"
 	fasm build.asm build
 	chmod +x build
 	./build

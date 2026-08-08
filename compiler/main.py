@@ -283,7 +283,7 @@ class AstAssign:
         self.src.declare(ctx)
 
     def compile(self, ctx):
-        vaddr = ctx.lookup(self.dst)
+        vaddr = ctx.lookup(self.dst, check_write=True)
         self.src.compile(ctx)
         ctx.emit(f"mov [vars + {vaddr}], rax")
 
@@ -419,15 +419,19 @@ class Ctx:
             vaddr = self.vaddr_to_addr(self.alloc - (i + 1))
             self.emit(f"pop qword [vars + {vaddr}]")
 
-    def lookup(self, name, env=None):
-        if env is None: env = self.env
+    def lookup(self, name, check_write=False):
+        var = self._lookup(name, self.env)
+        if check_write and var.const:
+            error(f"Trying to assign into constant: `{name}`")
+        return self.vaddr_to_addr(var.vaddr)
 
+    def _lookup(self, name, env) -> Var:
         if name not in env.var:
             if env.hyper is None:
                 error(f"Variable lookup for `{name}` failed.")
             return self.lookup(name, env=env.hyper)
 
-        return self.vaddr_to_addr(env.var[name].vaddr)
+        return env.var[name]
 
     def declare(self, name, const):
         self.env.var[name] = self.Var(name, const, self.alloc)
@@ -501,15 +505,12 @@ def footer(ctx):
 def main():
     stream = tokenize(sys.argv[1])
     root = AstBlock.parse(stream)
-    print(root)
     ctx = Ctx()
 
     header(ctx)
     root.declare(ctx)
     root.compile(ctx)
     footer(ctx)
-
-    print(ctx.env)
 
 
     with open('build.asm', 'w') as f:
