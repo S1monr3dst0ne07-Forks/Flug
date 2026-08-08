@@ -432,19 +432,27 @@ class Ctx:
         vaddr : int | None = None
 
     @dc
+    # LISP-like recursively 
+    # layered environments.
     class Env:
         hyper : "Env" = None
         sub   : list["Env"]      = field(default_factory=lambda: [])
         var   : dict[str, "Var"] = field(default_factory=lambda: {})
+
+        # depth into local variable stack.
+        # used to do env save/restore.
         depth : int = None
 
         def alloc(self, index=0):
+            # allocate on this layer
             for var in self.var.values():
                 var.vaddr = index
                 index += 1
 
+            # gauge current depth
             self.depth = index
 
+            # go down into lower layers
             for sub in self.sub:
                 sub.alloc(index)
 
@@ -456,6 +464,17 @@ class Ctx:
             for i in range(self.depth):
                 vaddr = vaddr_to_addr(self.depth - (i + 1))
                 ctx.emit(f"pop qword [vars + {vaddr}]")
+
+        def lookup(self, name):
+            if name not in self.var:
+                if self.hyper is None:
+                    error(f"Variable lookup for `{name}` failed.")
+
+                # recursive ascend up though the layers.
+                # *insert inception reference here*
+                return self.hyper.lookup(name)
+
+            return self.var[name]
 
 
     env : Env = field(default_factory=lambda: Ctx.Env())
@@ -473,20 +492,11 @@ class Ctx:
     def leave(self):
         self.env = self.env.hyper
 
-    def lookup(self, name, check_write=False, env=None):
-        if env is None: env = self.env
-        var = self._lookup(name, env)
+    def lookup(self, name, check_write=False):
+        var = self.env.lookup(name)
         if check_write and var.const:
             error(f"Trying to assign into constant: `{name}`")
         return vaddr_to_addr(var.vaddr)
-
-    def _lookup(self, name, env) -> Var:
-        if name not in env.var:
-            if env.hyper is None:
-                error(f"Variable lookup for `{name}` failed.")
-            return self._lookup(name, env=env.hyper)
-
-        return env.var[name]
 
     def declare(self, name, const):
         self.env.var[name] = self.Var(name, const, None)
