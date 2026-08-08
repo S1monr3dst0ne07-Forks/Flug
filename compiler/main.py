@@ -406,7 +406,7 @@ class Ctx:
                 error(f"Variable lookup for `{name}` failed.")
             return self.lookup(name, env=env.hyper)
 
-        return env.var[name].vaddr
+        return env.var[name].vaddr * 8
 
     def declare(self, name, const):
         self.env.var[name] = self.Var(name, const, self.alloc)
@@ -449,6 +449,8 @@ outn_zero_inject:
     mov rdi, 1              ; fd = stdout
     mov rax, 1              ; sys_write
     syscall
+
+    xor rax, rax            ; make sure return value is zero
     ret
 
 outn_zero:
