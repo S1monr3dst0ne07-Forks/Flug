@@ -41,6 +41,7 @@ run "let_return" "40"
 run "reassign" "10"
 run "recur" "0"
 run "sum" "4"
+run "subtract" "5"
 run "while" "$(cat << EOF
 1
 1
