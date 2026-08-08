@@ -111,8 +111,9 @@ ABI = ['rax', 'rsi', 'rdi', 'rdx']
 
 @dc
 class AstAnon:
-    args : list[str]
-    body : "AstBlock"
+    args  : list[str]
+    const : set[str]
+    body  : "AstBlock"
 
     env = None
 
@@ -120,19 +121,25 @@ class AstAnon:
     def parse(cls, stream):
         stream.expect('(') #)
         args = []
+        const = []
         while stream.peek() != ')':
+            if stream.peek() == 'const':
+                stream.pop()
+                const.append(stream.peek())
+
             args.append(stream.pop())
             if stream.peek() == ',': stream.pop()
         stream.expect(')')
         stream.expect('=>')
 
         body = AstBlock.parse(stream, curly=True)
-        return cls(args, body)
+        return cls(args, const, body)
 
     def declare(self, ctx):
         self.env = ctx.enter()
         for arg in self.args:
-            ctx.declare(arg, const=True)
+            const = arg in self.const
+            ctx.declare(arg, const)
         self.body.declare(ctx)
         ctx.leave()
 
