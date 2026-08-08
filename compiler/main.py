@@ -239,15 +239,16 @@ class AstExpr:
             case '+': ctx.emit("add rax, rbx")
             case '-': ctx.emit("sub rax, rbx")
             case '*': ctx.emit("mul rbx")
-            case '==' | '<' | '>' | '!=': 
+            case '==' | '<' | '>' | '!=' | '<=' | '>=': 
                 ctx.emit("cmp rax, rbx")
                 match self.op:
                     case '==': ctx.emit("sete cl")
                     case '!=': ctx.emit("setne cl")
-                    case '<': ctx.emit("setb cl")
-                    case '>': ctx.emit("seta cl")
+                    case '<':  ctx.emit("setb cl")
+                    case '>':  ctx.emit("seta cl")
+                    case '<=': ctx.emit("setbe cl")
+                    case '>=': ctx.emit("setae cl")
                 ctx.emit("movzx rax, cl")
-            case x: print("impl", x)
 
 
 
@@ -426,8 +427,9 @@ class Ctx:
             vaddr = self.vaddr_to_addr(self.alloc - (i + 1))
             self.emit(f"pop qword [vars + {vaddr}]")
 
-    def lookup(self, name, check_write=False):
-        var = self._lookup(name, self.env)
+    def lookup(self, name, check_write=False, env=None):
+        if env is None: env = self.env
+        var = self._lookup(name, env)
         if check_write and var.const:
             error(f"Trying to assign into constant: `{name}`")
         return self.vaddr_to_addr(var.vaddr)
@@ -436,7 +438,7 @@ class Ctx:
         if name not in env.var:
             if env.hyper is None:
                 error(f"Variable lookup for `{name}` failed.")
-            return self.lookup(name, env=env.hyper)
+            return self._lookup(name, env=env.hyper)
 
         return env.var[name]
 
