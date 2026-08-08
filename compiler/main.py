@@ -99,6 +99,16 @@ class AstCall:
 
     def compile(self, ctx):
         vaddr = ctx.lookup(self.name)
+
+        regs = ABI[:len(self.args)]
+        for arg in self.args:
+            arg.compile(ctx)
+            ctx.emit("push rax")
+        for reg in regs:
+            ctx.emit(f"pop {reg}")
+
+        
+
         ctx.emit(f"call qword [vars + {vaddr}]")
 
 ABI = ['rax', 'rsi', 'rdi', 'rdx']
