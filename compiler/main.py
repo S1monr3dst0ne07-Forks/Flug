@@ -29,11 +29,7 @@ def tokenize(path):
     @dc
     class Streamer:
         tokens : list[str]
-        lines  : list[int]
         index  : int
-
-        def line(self):
-            return self.lines[self.index]
 
         def peek(self):
             return self.tokens[self.index]
@@ -51,24 +47,19 @@ def tokenize(path):
     state = None
     buffer = ''
     stream = []
-    lines  = []
-    lineno = 1
     singleton = ('co', 'cc', 'po', 'pc')
     for char in src + '\0':
         kind = get_kind(char)
 
-        if char == '\n': lineno += 1
-
         if (kind != state and state) or (state in singleton):
             if state != 'format':
                 stream.append(buffer)
-                lines.append(lineno)
             buffer = ''
 
         buffer += char
         state = kind
 
-    return Streamer(stream, lines, 0)
+    return Streamer(stream, 0)
 
 
 PREC = {
@@ -98,7 +89,6 @@ class AstCall:
             arg.declare(ctx)
 
     def compile(self, ctx):
-        vaddr = ctx.lookup(self.name)
 
         regs = ABI[:len(self.args)]
         for arg in self.args:
@@ -107,9 +97,11 @@ class AstCall:
         for reg in regs:
             ctx.emit(f"pop {reg}")
 
-        
-
-        ctx.emit(f"call qword [vars + {vaddr}]")
+        if self.name not in ('outn'):
+            vaddr = ctx.lookup(self.name)
+            ctx.emit(f"call qword [vars + {vaddr}]")
+        else:
+            ctx.emit(f"call {self.name}")
 
 ABI = ['rax', 'rsi', 'rdi', 'rdx']
 
@@ -156,7 +148,7 @@ class AstAnon:
         self.body.compile(ctx)
         ctx.emit("ret")
         ctx.emit(f"{skip_label}:")
-        ctx.emit(f"mov rax, {func_label}")
+        ctx.emit(f"mov rax, qword {func_label}")
 
         ctx.leave()
 
@@ -164,6 +156,8 @@ class AstAnon:
 @dc
 class AstVar:
     name : str
+
+    def declare(self, ctx): pass
 
     def compile(self, ctx):
         addr = ctx.lookup(self.name)
@@ -247,16 +241,13 @@ class AstDecl:
     kind : Literal['const', 'let']
     dst : str
     src : AstExpr
-    line : int
 
     @classmethod
     def parse(cls, stream, kind):
-        line = stream.line()
         dst = stream.pop()
         stream.expect('=')
         src = AstExpr.parse(stream)
-        stream.expect(';')
-        return cls(kind, dst, src, line)
+        return cls(kind, dst, src)
 
     def declare(self, ctx):
         self.src.declare(ctx)
@@ -278,7 +269,6 @@ class AstAssign:
     def parse(cls, stream, dst):
         stream.expect('=')
         src = AstExpr.parse(stream)
-        stream.expect(';')
         return cls(dst, src)
 
 @dc
@@ -313,7 +303,7 @@ class AstIf:
         if self.cond:
             self.cond.compile(ctx)
             ctx.emit("cmp rax, 0")
-            ctx.emit(f"jne {skip_label}")
+            ctx.emit(f"je {skip_label}")
         self.body.compile(ctx)
         ctx.emit(f"jmp {done_label}")
         ctx.emit(f"{skip_label}:")
@@ -333,7 +323,7 @@ class AstStmt:
             case 'while': return AstWhile.parse(stream)
             case kind if kind in ('const', 'let'): 
                 return AstDecl.parse(stream, kind)
-            case dst if stream.peek() == '=': 
+            case dst if stream.has() and stream.peek() == '=': 
                 return AstAssign.parse(stream, dst)
             case x:
                 stream.index -= 1
@@ -350,6 +340,10 @@ class AstBlock:
         stmts = []
         while stream.has() and stream.peek() != '}':
             stmts.append(AstStmt.parse(stream))
+
+            if stream.has() and stream.peek() == ';': 
+                stream.pop()
+            else: break
 
         if curly: stream.expect('}')
         return cls(stmts)
@@ -425,6 +419,8 @@ def header(ctx):
     ctx.emit("entry _start")
     ctx.emit("""
 outn:
+    cmp rax, 0
+    je outn_zero
     mov rsi, 10             ; divisor = 10
     mov rdi, 4095           ; digit index
 outn_loop:
@@ -440,11 +436,20 @@ outn_loop:
     mov rdx, 4098           ; compute length
     sub rdx, rdi
 
+outn_zero_inject:
     lea rsi, byte [rdi+buf] ; buf = buffer + index
     mov rdi, 1              ; fd = stdout
     mov rax, 1              ; sys_write
     syscall
-    ret""")
+    ret
+
+outn_zero:
+    mov rdi, 0
+    mov [buf+0], byte '0'
+    mov [buf+1], byte 10
+    mov rdx, 2
+    jmp outn_zero_inject
+             """)
 
     ctx.emit("_start:")
     ctx.emit("call main")
@@ -463,6 +468,7 @@ def footer(ctx):
 def main():
     stream = tokenize(sys.argv[1])
     root = AstBlock.parse(stream)
+    print(root)
     ctx = Ctx()
 
     header(ctx)
