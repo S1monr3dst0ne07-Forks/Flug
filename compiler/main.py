@@ -89,7 +89,7 @@ class AstCall:
             arg.declare(ctx)
 
     def compile(self, ctx):
-        ctx.save()
+        ctx.env.save(ctx)
 
         regs = ABI[:len(self.args)]
         for arg in self.args:
@@ -104,7 +104,7 @@ class AstCall:
         else:
             ctx.emit(f"call {self.name}")
 
-        ctx.restore()
+        ctx.env.restore(ctx)
 
 
 ABI = ['rax', 'rsi', 'rdi', 'rdx']
@@ -417,13 +417,13 @@ class AstBlock:
 
 
 
-
+def vaddr_to_addr(vaddr):
+    return vaddr * 8
 
 @dc
 class Ctx:
     output : list[str] = field(default_factory=lambda: [])
     index : int = 0
-    alloc : int = 0
 
     @dc
     class Var:
@@ -434,14 +434,34 @@ class Ctx:
     @dc
     class Env:
         hyper : "Env" = None
-        sub   : list["Env"]    = field(default_factory=lambda: [])
-        var : dict[str, "Var"] = field(default_factory=lambda: {})
+        sub   : list["Env"]      = field(default_factory=lambda: [])
+        var   : dict[str, "Var"] = field(default_factory=lambda: {})
+        depth : int = None
+
+        def alloc(self, index=0):
+            for var in self.var.values():
+                var.vaddr = index
+                index += 1
+
+            self.depth = index
+
+            for sub in self.sub:
+                sub.alloc(index)
+
+        def save(self, ctx):
+            for i in range(self.depth):
+                vaddr = vaddr_to_addr(i)
+                ctx.emit(f"push qword [vars + {vaddr}]")
+        def restore(self, ctx):
+            for i in range(self.depth):
+                vaddr = vaddr_to_addr(self.depth - (i + 1))
+                ctx.emit(f"pop qword [vars + {vaddr}]")
+
 
     env : Env = field(default_factory=lambda: Ctx.Env())
 
-    @staticmethod
-    def vaddr_to_addr(vaddr):
-        return vaddr * 8
+    def alloc(self):
+        self.env.alloc()
 
     def enter(self, sub=None):
         if not sub:
@@ -453,21 +473,12 @@ class Ctx:
     def leave(self):
         self.env = self.env.hyper
 
-    def save(self):
-        for i in range(self.alloc):
-            vaddr = self.vaddr_to_addr(i)
-            self.emit(f"push qword [vars + {vaddr}]")
-    def restore(self):
-        for i in range(self.alloc):
-            vaddr = self.vaddr_to_addr(self.alloc - (i + 1))
-            self.emit(f"pop qword [vars + {vaddr}]")
-
     def lookup(self, name, check_write=False, env=None):
         if env is None: env = self.env
         var = self._lookup(name, env)
         if check_write and var.const:
             error(f"Trying to assign into constant: `{name}`")
-        return self.vaddr_to_addr(var.vaddr)
+        return vaddr_to_addr(var.vaddr)
 
     def _lookup(self, name, env) -> Var:
         if name not in env.var:
@@ -478,8 +489,7 @@ class Ctx:
         return env.var[name]
 
     def declare(self, name, const):
-        self.env.var[name] = self.Var(name, const, self.alloc)
-        self.alloc += 1
+        self.env.var[name] = self.Var(name, const, None)
 
     def fresh(self):
         out = f"__fresh_{self.index}"
@@ -553,6 +563,7 @@ def main():
 
     header(ctx)
     root.declare(ctx)
+    ctx.alloc()
     root.compile(ctx)
     footer(ctx)
 
